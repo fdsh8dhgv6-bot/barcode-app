@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>バーコード商品ビューア</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
 :root{--bg:#f3f7f5;--card:#fff;--ink:#16302b;--sub:#5d746e;--line:#d5e2de;--accent:#0f8b6d;--accent-ink:#fff}
 @media (prefers-color-scheme:dark){:root{--bg:#0e1b18;--card:#162824;--ink:#e6f3ef;--sub:#93aba4;--line:#274039;--accent:#3cc9a3;--accent-ink:#06231b}}
@@ -16,8 +17,11 @@ h1{font-size:20px;margin:0 0 12px}
 button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:12px 18px;background:var(--accent);color:var(--accent-ink);font-weight:700;width:100%}
 button.sub{background:var(--card);color:var(--ink);border:1px solid var(--line)}
 button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-#reader{margin-top:12px;width:100%}
-#reader video{width:100% !important;height:auto !important;display:block;border-radius:14px}
+.cam{display:none;margin-top:12px;position:relative;border-radius:14px;overflow:hidden;background:#000}
+.cam.on{display:block}
+.cam video{display:block;width:100%;height:auto}
+.cam .guide{position:absolute;inset:18% 8%;border:2px dashed rgba(255,255,255,.8);border-radius:10px;pointer-events:none}
+.status{margin:8px 0 0;font-size:13px;color:var(--sub);min-height:20px}
 .row{display:flex;gap:8px;margin-top:12px}
 input{flex:1;min-width:0;font-size:18px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)}
 .row button{width:auto}
@@ -33,56 +37,143 @@ input{flex:1;min-width:0;font-size:18px;padding:10px 12px;border:1px solid var(-
 <main>
   <h1>バーコード商品ビューア</h1>
   <button id="start">カメラで読み取る</button>
-  <div id="reader"></div>
+  <div class="cam" id="cam"><video id="video" playsinline muted></video><div class="guide"></div></div>
+  <p class="status" id="status"></p>
   <div class="row">
     <input id="code" inputmode="numeric" maxlength="13" placeholder="数字を直接入力" aria-label="バーコードの数字">
     <button class="sub" id="go">調べる</button>
   </div>
   <section class="result" id="out" aria-live="polite">
-    <div class="empty">バーコードを読み取ると、商品の画像が出ます。</div>
+    <div class="empty">バーコードを映すと、向きに関係なく読み取ります。バーコードが読めないときは、下の数字も自動で読み取ります。</div>
   </section>
 </main>
 
 <script>
-var out = document.getElementById("out"), reader = null, busy = false;
+var out = document.getElementById("out"), statusEl = document.getElementById("status"),
+    video = document.getElementById("video"), cam = document.getElementById("cam"), startBtn = document.getElementById("start");
+var stream = null, running = false, timer = null, ocrWorker = null, ocrBusy = false, ocrStep = 0, ocrTick = 0;
 var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); };
 
-async function lookup(code) {
-  out.innerHTML = '<div class="empty">' + esc(code) + ' を検索中…</div>';
+// ---- バーコード用の設定 ----
+var hints = new Map();
+hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E]);
+hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+var zx = new ZXing.MultiFormatReader(); zx.setHints(hints);
+
+var frame = document.createElement("canvas"), rotA = document.createElement("canvas");
+
+function decodeCanvas(c) {
   try {
-    var r = await fetch("https://world.openfoodfacts.org/api/v2/product/" + encodeURIComponent(code) + ".json?fields=product_name,brands,image_front_url");
-    var d = await r.json();
-    if (d.status !== 1 || !d.product) throw 0;
-    var p = d.product;
-    out.innerHTML = (p.image_front_url ? '<img src="' + esc(p.image_front_url) + '" alt="商品画像">' : '') +
-      '<div class="info"><p class="name">' + esc(p.product_name || "名称不明") + '</p>' +
-      '<p class="meta">' + esc(p.brands || "") + '</p><p class="meta">' + esc(code) + '</p></div>';
-  } catch (e) {
-    out.innerHTML = '<div class="empty">' + esc(code) + ' の商品が見つかりませんでした。食品・飲料以外は登録が少ないことがあります。</div>';
+    var bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(c)));
+    return zx.decodeWithState(bmp).getText();
+  } catch (e) { return null; }
+}
+function rotate(src, deg, dst) {
+  dst.width = src.height; dst.height = src.width;
+  var x = dst.getContext("2d");
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  if (deg === 90) { x.translate(dst.width, 0); x.rotate(Math.PI / 2); } else { x.translate(0, dst.height); x.rotate(-Math.PI / 2); }
+  x.drawImage(src, 0, 0);
+  return dst;
+}
+function grab() {
+  var w = video.videoWidth, h = video.videoHeight; if (!w) return false;
+  var s = Math.min(1, 1280 / Math.max(w, h));
+  frame.width = Math.round(w * s); frame.height = Math.round(h * s);
+  frame.getContext("2d").drawImage(video, 0, 0, frame.width, frame.height);
+  return true;
+}
+
+// ---- 数字の読み取り(保険) ----
+function valid(c) {
+  var n = c.length; if (n !== 8 && n !== 12 && n !== 13) return false;
+  var s = 0; for (var i = 0; i < n - 1; i++) s += +c[n - 2 - i] * (i % 2 === 0 ? 3 : 1);
+  return (10 - s % 10) % 10 === +c[n - 1];
+}
+function findCode(text) {
+  var lines = text.split("\n");
+  for (var i = 0; i < lines.length; i++) {
+    var d = lines[i].replace(/\D/g, "");
+    var m = d.match(/\d{13}|\d{12}|\d{8}/g) || [];
+    for (var j = 0; j < m.length; j++) if (valid(m[j])) return m[j];
   }
+  return null;
 }
-
-async function stop() {
-  if (reader) { try { await reader.stop(); reader.clear(); } catch (e) {} reader = null; }
-  document.getElementById("start").textContent = "カメラで読み取る";
-}
-
-document.getElementById("start").onclick = async function () {
-  if (reader) { stop(); return; }
-  reader = new Html5Qrcode("reader", { formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E] });
+async function runOcr() {
+  if (ocrBusy || !running) return; ocrBusy = true;
   try {
-    await reader.start({ facingMode: "environment" }, { fps: 10, aspectRatio: 1.3333, qrbox: { width: 260, height: 140 } }, function (text) {
-      if (busy) return; busy = true;
-      document.getElementById("code").value = text;
-      stop().then(function () { return lookup(text); }).then(function () { busy = false; });
-    });
-    this.textContent = "読み取りを止める";
+    if (!ocrWorker) {
+      statusEl.textContent = "数字読み取りの準備中…(初回のみ少し時間がかかります)";
+      ocrWorker = await Tesseract.createWorker("eng");
+      await ocrWorker.setParameters({ tessedit_char_whitelist: "0123456789 ", tessedit_pageseg_mode: "11" });
+    }
+    if (!running) { ocrBusy = false; return; }
+    var angles = [0, 90, 270], a = angles[ocrStep++ % 3], c = frame;
+    if (a) c = rotate(frame, a, document.createElement("canvas"));
+    var r = await ocrWorker.recognize(c), code = findCode(r.data.text || "");
+    if (code && running) { found(code, "数字"); }
+    else if (running) statusEl.textContent = "読み取り中…バーコードを映してください";
+  } catch (e) { statusEl.textContent = "数字読み取りに失敗しました。バーコードのみで続けます。"; }
+  ocrBusy = false;
+}
+
+// ---- 読み取りループ ----
+function loop() {
+  if (!running) return;
+  if (grab()) {
+    var t = decodeCanvas(frame) || decodeCanvas(rotate(frame, 90, rotA));
+    if (t) { found(t, "バーコード"); return; }
+    if (++ocrTick % 8 === 0) runOcr();
+  }
+  timer = setTimeout(loop, 120);
+}
+function found(code, how) {
+  stop();
+  document.getElementById("code").value = code;
+  statusEl.textContent = how + "から読み取りました: " + code;
+  lookup(code);
+}
+async function stop() {
+  running = false; clearTimeout(timer);
+  if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+  video.srcObject = null; cam.classList.remove("on");
+  startBtn.textContent = "カメラで読み取る";
+}
+startBtn.onclick = async function () {
+  if (running) { stop(); statusEl.textContent = ""; return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    video.srcObject = stream; video.setAttribute("playsinline", ""); video.muted = true;
+    await video.play();
+    cam.classList.add("on"); running = true; ocrTick = 0;
+    startBtn.textContent = "読み取りを止める";
+    statusEl.textContent = "読み取り中…バーコードを映してください(向きは自由です)";
+    loop();
   } catch (e) {
-    reader = null;
+    stop();
     out.innerHTML = '<div class="empty">カメラを開けませんでした。Safariの設定でカメラを許可し、https:// のアドレスで開いているか確認してください。</div>';
   }
 };
 
+// ---- 商品検索(食品 → 日用品 → 化粧品の順) ----
+var hosts = ["world.openfoodfacts.org", "world.openproductsfacts.org", "world.openbeautyfacts.org"];
+async function lookup(code) {
+  out.innerHTML = '<div class="empty">' + esc(code) + ' を検索中…</div>';
+  for (var i = 0; i < hosts.length; i++) {
+    try {
+      var r = await fetch("https://" + hosts[i] + "/api/v2/product/" + encodeURIComponent(code) + ".json?fields=product_name,brands,image_front_url");
+      var d = await r.json();
+      if (d.status === 1 && d.product) {
+        var p = d.product;
+        out.innerHTML = (p.image_front_url ? '<img src="' + esc(p.image_front_url) + '" alt="商品画像">' : '') +
+          '<div class="info"><p class="name">' + esc(p.product_name || "名称不明") + '</p>' +
+          '<p class="meta">' + esc(p.brands || "") + '</p><p class="meta">' + esc(code) + '</p></div>';
+        return;
+      }
+    } catch (e) {}
+  }
+  out.innerHTML = '<div class="empty">' + esc(code) + ' の商品が見つかりませんでした。無料のデータベースに登録がない商品です。</div>';
+}
 document.getElementById("go").onclick = function () {
   var v = document.getElementById("code").value.replace(/\D/g, "");
   if (v) lookup(v);
