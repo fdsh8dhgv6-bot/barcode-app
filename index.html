@@ -37,6 +37,8 @@ input{flex:1;min-width:0;font-size:16px;padding:9px 11px;border:1px solid var(--
 .bd{flex:1;min-width:0}
 .nm{margin:0;font-weight:700;font-size:15px;word-break:break-all}
 .mt{margin:0;font-size:12px;color:var(--sub);word-break:break-all}
+input.nm{width:100%;padding:6px 9px;font-size:15px}
+.status button{padding:4px 10px;font-size:12px;margin-left:6px}
 .memo{width:100%;margin-top:6px;font-size:14px;padding:6px 9px}
 .ac{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
 .ac button,.ac a{padding:7px 10px;font-size:13px}
@@ -67,6 +69,13 @@ input{flex:1;min-width:0;font-size:16px;padding:9px 11px;border:1px solid var(--
 <script>
 var KEY = "pick_items_v1", items = [];
 try { items = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) { items = []; }
+var DKEY = "pick_dict_v1", dict = {}, lastDel = null;
+try { dict = JSON.parse(localStorage.getItem(DKEY) || "{}"); } catch (e) { dict = {}; }
+function setName(i, n) {
+  var c = items[i].code; items[i].name = n; dict[c] = dict[c] || {}; dict[c].name = n;
+  try { localStorage.setItem(DKEY, JSON.stringify(dict)); } catch (e) {}
+  save();
+}
 function save() { try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
 var $ = function (id) { return document.getElementById(id); };
 var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); };
@@ -81,24 +90,29 @@ function render() {
     var x = items[i];
     return '<div class="it' + (x.done ? " done" : "") + '" data-i="' + i + '">' +
       (x.img ? '<img src="' + esc(x.img) + '" alt="">' : '<div class="ph">?</div>') +
-      '<div class="bd"><p class="nm">' + esc(x.name || "商品情報なし") + '</p>' +
+      '<div class="bd"><input class="nm" data-act="name" placeholder="商品名(未入力)" value="' + esc(x.name) + '">' +
       '<p class="mt">' + esc(x.brand ? x.brand + " / " : "") + esc(x.code) + '</p>' +
       '<input class="memo" data-act="memo" placeholder="メモ(棚番号・数量など)" value="' + esc(x.memo) + '">' +
       '<div class="ac"><button data-act="done">' + (x.done ? "戻す" : "ピック済み") + '</button>' +
-      '<button class="warn" data-act="del">削除</button></div>' +
+      '<button class="sub" data-act="paste">名前を貼付</button><button class="warn" data-act="del">削除</button></div>' +
       '<div class="ac">' + [["画像","https://www.google.com/search?tbm=isch&q="],["Yahoo!","https://shopping.yahoo.co.jp/search?p="],["楽天","https://search.rakuten.co.jp/search/mall/"],["Amazon","https://www.amazon.co.jp/s?k="]].map(function (l) { return '<a class="btn sub" target="_blank" rel="noopener" href="' + l[1] + encodeURIComponent(x.code) + '">' + l[0] + '</a>'; }).join("") + '</div></div></div>';
   }).join("") : '<div class="empty">まだ何もありません。「スキャン開始」で棚のバーコードを読み取ってください。</div>';
 }
 list.addEventListener("click", function (e) {
   var b = e.target.closest("button[data-act]"); if (!b) return;
   var i = +b.closest(".it").dataset.i, a = b.dataset.act;
+  if (a === "paste") { navigator.clipboard.readText().then(function (t) { setName(i, t.trim().slice(0, 120)); render(); }, function () { statusEl.textContent = "貼り付けできませんでした。名前の欄に直接貼ってください"; }); return; }
   if (a === "done") items[i].done = !items[i].done;
-  if (a === "del") items.splice(i, 1);
+  if (a === "del") { lastDel = items.splice(i, 1)[0]; statusEl.innerHTML = '削除しました<button class="sub" id="undo">元に戻す</button>'; }
   save(); render();
 });
 list.addEventListener("input", function (e) {
-  if (e.target.dataset.act !== "memo") return;
-  items[+e.target.closest(".it").dataset.i].memo = e.target.value; save();
+  var i = +e.target.closest(".it").dataset.i;
+  if (e.target.dataset.act === "memo") { items[i].memo = e.target.value; save(); }
+  if (e.target.dataset.act === "name") setName(i, e.target.value);
+});
+statusEl.addEventListener("click", function (e) {
+  if (e.target.id === "undo" && lastDel) { items.push(lastDel); lastDel = null; save(); render(); statusEl.textContent = "元に戻しました"; }
 });
 $("clrdone").onclick = function () {
   var n = items.filter(function (x) { return x.done; }).length;
@@ -118,7 +132,8 @@ async function lookup(item) {
       var r = await fetch("https://" + hosts[i] + "/api/v2/product/" + item.code + ".json?fields=product_name,brands,image_front_url");
       var d = await r.json();
       if (d.status === 1 && d.product) {
-        item.name = d.product.product_name || ""; item.brand = d.product.brands || ""; item.img = d.product.image_front_url || "";
+        item.name = item.name || d.product.product_name || ""; item.brand = d.product.brands || ""; item.img = d.product.image_front_url || "";
+        if (item.name) { dict[item.code] = dict[item.code] || {}; dict[item.code].name = item.name; try { localStorage.setItem(DKEY, JSON.stringify(dict)); } catch (e) {} }
         save(); render(); return;
       }
     } catch (e) {}
@@ -128,7 +143,7 @@ function addCode(code) {
   code = String(code).trim(); if (!code) return false;
   var ex = items.filter(function (x) { return x.code === code; })[0];
   if (ex) { if (ex.done) { ex.done = false; save(); render(); statusEl.textContent = code + " はピック済みでした。未ピックに戻しました"; } else statusEl.textContent = code + " は登録済みです"; return false; }
-  var it = { code: code, name: "", brand: "", img: "", memo: "", done: false, t: Date.now() };
+  var it = { code: code, name: (dict[code] && dict[code].name) || "", brand: "", img: "", memo: "", done: false, t: Date.now() };
   items.push(it); save(); render(); lookup(it);
   statusEl.textContent = "追加しました: " + code + "(" + items.length + "件)";
   return true;
