@@ -30,6 +30,7 @@ input{flex:1;min-width:0;font-size:18px;padding:10px 12px;border:1px solid var(-
 .info{padding:14px 16px}
 .name{font-size:18px;font-weight:700;margin:0}
 .meta{margin:4px 0 0;color:var(--sub);font-size:14px}
+.imglink{display:inline-block;padding:12px 20px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-weight:700;text-decoration:none}
 .empty{padding:22px 16px;color:var(--sub);font-size:14px;text-align:center}
 </style>
 </head>
@@ -172,7 +173,8 @@ async function lookup(code) {
       }
     } catch (e) {}
   }
-  out.innerHTML = '<div class="empty">' + esc(code) + ' の商品が見つかりませんでした。無料のデータベースに登録がない商品です。</div>';
+  out.innerHTML = '<div class="empty">' + esc(code) + ' の商品が見つかりませんでした。無料のデータベースに登録がない商品です。<br><br>' +
+    '<a class="imglink" href="https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(code) + '" target="_blank" rel="noopener">画像検索で探す</a></div>';
 }
 document.getElementById("go").onclick = function () {
   var v = document.getElementById("code").value.replace(/\D/g, "");
