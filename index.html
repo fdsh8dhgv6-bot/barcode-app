@@ -85,15 +85,15 @@ function render() {
       '<p class="mt">' + esc(x.brand ? x.brand + " / " : "") + esc(x.code) + '</p>' +
       '<input class="memo" data-act="memo" placeholder="メモ(棚番号・数量など)" value="' + esc(x.memo) + '">' +
       '<div class="ac"><button data-act="done">' + (x.done ? "戻す" : "ピック済み") + '</button>' +
-      '<a class="btn sub" target="_blank" rel="noopener" href="https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(x.code) + '">画像検索</a>' +
-      '<button class="warn" data-act="del">削除</button></div></div></div>';
+      '<button class="warn" data-act="del">削除</button></div>' +
+      '<div class="ac">' + [["画像","https://www.google.com/search?tbm=isch&q="],["Yahoo!","https://shopping.yahoo.co.jp/search?p="],["楽天","https://search.rakuten.co.jp/search/mall/"],["Amazon","https://www.amazon.co.jp/s?k="]].map(function (l) { return '<a class="btn sub" target="_blank" rel="noopener" href="' + l[1] + encodeURIComponent(x.code) + '">' + l[0] + '</a>'; }).join("") + '</div></div></div>';
   }).join("") : '<div class="empty">まだ何もありません。「スキャン開始」で棚のバーコードを読み取ってください。</div>';
 }
 list.addEventListener("click", function (e) {
   var b = e.target.closest("button[data-act]"); if (!b) return;
   var i = +b.closest(".it").dataset.i, a = b.dataset.act;
   if (a === "done") items[i].done = !items[i].done;
-  if (a === "del" && confirm("この商品をリストから消しますか?")) items.splice(i, 1);
+  if (a === "del") items.splice(i, 1);
   save(); render();
 });
 list.addEventListener("input", function (e) {
