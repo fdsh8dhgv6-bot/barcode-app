@@ -39,6 +39,7 @@ input{flex:1;min-width:0;font-size:16px;padding:9px 11px;border:1px solid var(--
 .mt{margin:0;font-size:12px;color:var(--sub);word-break:break-all}
 input.nm{width:100%;padding:6px 9px;font-size:15px}
 .status button{padding:4px 10px;font-size:12px;margin-left:6px}
+.set{margin-top:24px;font-size:13px;color:var(--sub)}
 .memo{width:100%;margin-top:6px;font-size:14px;padding:6px 9px}
 .ac{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
 .ac button,.ac a{padding:7px 10px;font-size:13px}
@@ -64,6 +65,10 @@ input.nm{width:100%;padding:6px 9px;font-size:15px}
     </span>
   </div>
   <div id="list"></div>
+  <details class="set"><summary>設定(Yahoo!から商品情報を自動取得)</summary>
+    <div class="row"><input id="yid" placeholder="Yahoo! Client ID を貼り付け"><button class="sub" id="ysave">保存</button></div>
+    <p>Web Services by Yahoo! JAPAN</p>
+  </details>
 </main>
 
 <script>
@@ -76,6 +81,8 @@ function setName(i, n) {
   try { localStorage.setItem(DKEY, JSON.stringify(dict)); } catch (e) {}
   save();
 }
+var YID = ""; try { YID = localStorage.getItem("pick_yid") || ""; } catch (e) {}
+function remember(it) { if (it.name) { dict[it.code] = dict[it.code] || {}; dict[it.code].name = it.name; try { localStorage.setItem(DKEY, JSON.stringify(dict)); } catch (e) {} } }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
 var $ = function (id) { return document.getElementById(id); };
 var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); };
@@ -114,6 +121,8 @@ list.addEventListener("input", function (e) {
 statusEl.addEventListener("click", function (e) {
   if (e.target.id === "undo" && lastDel) { items.push(lastDel); lastDel = null; save(); render(); statusEl.textContent = "元に戻しました"; }
 });
+$("yid").value = YID;
+$("ysave").onclick = function () { YID = $("yid").value.trim(); try { localStorage.setItem("pick_yid", YID); } catch (e) {} statusEl.textContent = YID ? "Client IDを保存しました" : "Client IDを削除しました"; };
 $("clrdone").onclick = function () {
   var n = items.filter(function (x) { return x.done; }).length;
   if (n && confirm("ピック済みの " + n + " 件を消しますか?")) { items = items.filter(function (x) { return !x.done; }); save(); render(); }
@@ -127,6 +136,17 @@ $("copy").onclick = function () {
 var hosts = ["world.openfoodfacts.org", "world.openproductsfacts.org", "world.openbeautyfacts.org"];
 async function lookup(item) {
   if (!/^(\d{8}|\d{12,13})$/.test(item.code)) return;
+  if (YID) {
+    try {
+      var yr = await fetch("https://shopping.yahooapis.jp/ShoppingWebService/V3/itemSearch?appid=" + encodeURIComponent(YID) + "&jan_code=" + item.code + "&results=1");
+      var yd = await yr.json(), h = yd.hits && yd.hits[0];
+      if (h) {
+        item.name = item.name || h.name || ""; item.brand = (h.brand && h.brand.name) || "";
+        item.img = (h.image && (h.image.medium || h.image.small)) || "";
+        remember(item); save(); render(); return;
+      }
+    } catch (e) { statusEl.textContent = "Yahoo!から取得できませんでした(Client IDを確認してください)"; }
+  }
   for (var i = 0; i < hosts.length; i++) {
     try {
       var r = await fetch("https://" + hosts[i] + "/api/v2/product/" + item.code + ".json?fields=product_name,brands,image_front_url");
