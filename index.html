@@ -60,6 +60,7 @@ input.nm{width:100%;padding:6px 9px;font-size:15px}
   <div class="bar">
     <span class="cnt" id="cnt"></span>
     <span class="tools">
+      <button class="sub" id="fetchall">一括取得</button>
       <button class="sub" id="copy">コピー</button>
       <button class="warn" id="clrdone">完了を消す</button>
     </span>
@@ -101,7 +102,7 @@ function render() {
       '<p class="mt">' + esc(x.brand ? x.brand + " / " : "") + esc(x.code) + '</p>' +
       '<input class="memo" data-act="memo" placeholder="メモ(棚番号・数量など)" value="' + esc(x.memo) + '">' +
       '<div class="ac"><button data-act="done">' + (x.done ? "戻す" : "ピック済み") + '</button>' +
-      '<button class="sub" data-act="paste">名前を貼付</button><button class="warn" data-act="del">削除</button></div>' +
+      '<button class="sub" data-act="fetch">取得</button><button class="sub" data-act="paste">名前を貼付</button><button class="warn" data-act="del">削除</button></div>' +
       '<div class="ac">' + [["画像","https://www.google.com/search?tbm=isch&q="],["Yahoo!","https://shopping.yahoo.co.jp/search?p="],["楽天","https://search.rakuten.co.jp/search/mall/"],["Amazon","https://www.amazon.co.jp/s?k="]].map(function (l) { return '<a class="btn sub" target="_blank" rel="noopener" href="' + l[1] + encodeURIComponent(x.code) + '">' + l[0] + '</a>'; }).join("") + '</div></div></div>';
   }).join("") : '<div class="empty">まだ何もありません。「スキャン開始」で棚のバーコードを読み取ってください。</div>';
 }
@@ -109,6 +110,7 @@ list.addEventListener("click", function (e) {
   var b = e.target.closest("button[data-act]"); if (!b) return;
   var i = +b.closest(".it").dataset.i, a = b.dataset.act;
   if (a === "paste") { navigator.clipboard.readText().then(function (t) { setName(i, t.trim().slice(0, 120)); render(); }, function () { statusEl.textContent = "貼り付けできませんでした。名前の欄に直接貼ってください"; }); return; }
+  if (a === "fetch") { lookup(items[i], true); return; }
   if (a === "done") items[i].done = !items[i].done;
   if (a === "del") { lastDel = items.splice(i, 1)[0]; statusEl.innerHTML = '削除しました<button class="sub" id="undo">元に戻す</button>'; }
   save(); render();
@@ -127,6 +129,11 @@ $("clrdone").onclick = function () {
   var n = items.filter(function (x) { return x.done; }).length;
   if (n && confirm("ピック済みの " + n + " 件を消しますか?")) { items = items.filter(function (x) { return !x.done; }); save(); render(); }
 };
+$("fetchall").onclick = async function () {
+  var t = items.filter(function (x) { return !x.name && !x.done; });
+  for (var k = 0; k < t.length; k++) { await lookup(t[k], true); await new Promise(function (r) { setTimeout(r, 1100); }); }
+  statusEl.textContent = "一括取得が終わりました(" + t.filter(function (x) { return x.name; }).length + "/" + t.length + "件取得)";
+};
 $("copy").onclick = function () {
   var t = items.filter(function (x) { return !x.done; }).map(function (x) { return x.code + " " + (x.name || "") + " " + (x.memo || ""); }).join("\n");
   (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { statusEl.textContent = "未ピックのリストをコピーしました"; }, function () { statusEl.textContent = "コピーできませんでした"; });
@@ -134,19 +141,24 @@ $("copy").onclick = function () {
 
 // ---------- 追加と商品検索 ----------
 var hosts = ["world.openfoodfacts.org", "world.openproductsfacts.org", "world.openbeautyfacts.org"];
-async function lookup(item) {
+async function lookup(item, manual) {
   if (!/^(\d{8}|\d{12,13})$/.test(item.code)) return;
   if (YID) {
     try {
+      statusEl.textContent = "Yahoo!で検索中…";
       var yr = await fetch("https://shopping.yahooapis.jp/ShoppingWebService/V3/itemSearch?appid=" + encodeURIComponent(YID) + "&jan_code=" + item.code + "&results=1");
-      var yd = await yr.json(), h = yd.hits && yd.hits[0];
-      if (h) {
-        item.name = item.name || h.name || ""; item.brand = (h.brand && h.brand.name) || "";
-        item.img = (h.image && (h.image.medium || h.image.small)) || "";
-        remember(item); save(); render(); return;
+      if (!yr.ok) { statusEl.textContent = "Yahoo!がエラーを返しました(" + yr.status + ")。Client IDを確認してください"; }
+      else {
+        var yd = await yr.json(), h = yd.hits && yd.hits[0];
+        if (h) {
+          item.name = item.name || h.name || ""; item.brand = (h.brand && h.brand.name) || "";
+          item.img = (h.image && (h.image.medium || h.image.small)) || "";
+          remember(item); save(); render(); statusEl.textContent = "Yahoo!から取得しました"; return;
+        }
+        statusEl.textContent = "Yahoo!に該当する商品がありませんでした";
       }
-    } catch (e) { statusEl.textContent = "Yahoo!から取得できませんでした(Client IDを確認してください)"; }
-  }
+    } catch (e) { statusEl.textContent = "Yahoo!に接続できませんでした。ブラウザの制限(CORS)で拒否された可能性があります"; }
+  } else if (manual) { statusEl.textContent = "下の設定でYahoo! Client IDを保存してください"; }
   for (var i = 0; i < hosts.length; i++) {
     try {
       var r = await fetch("https://" + hosts[i] + "/api/v2/product/" + item.code + ".json?fields=product_name,brands,image_front_url");
