@@ -4,88 +4,161 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>バーコード商品ビューア</title>
+<title>品切れピッキングリスト</title>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
-:root{--bg:#f3f7f5;--card:#fff;--ink:#16302b;--sub:#5d746e;--line:#d5e2de;--accent:#0f8b6d;--accent-ink:#fff}
-@media (prefers-color-scheme:dark){:root{--bg:#0e1b18;--card:#162824;--ink:#e6f3ef;--sub:#93aba4;--line:#274039;--accent:#3cc9a3;--accent-ink:#06231b}}
+:root{--bg:#f3f7f5;--card:#fff;--ink:#16302b;--sub:#5d746e;--line:#d5e2de;--accent:#0f8b6d;--accent-ink:#fff;--warn:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1b18;--card:#162824;--ink:#e6f3ef;--sub:#93aba4;--line:#274039;--accent:#3cc9a3;--accent-ink:#06231b;--warn:#ff7b6b}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hiragino Sans","Noto Sans JP",sans-serif;line-height:1.6;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
-main{max-width:480px;margin:0 auto;padding:20px 16px 32px}
-h1{font-size:20px;margin:0 0 12px}
-button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:12px 18px;background:var(--accent);color:var(--accent-ink);font-weight:700;width:100%}
-button.sub{background:var(--card);color:var(--ink);border:1px solid var(--line)}
-button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-.cam{display:none;margin-top:12px;position:relative;border-radius:14px;overflow:hidden;background:#000}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hiragino Sans","Noto Sans JP",sans-serif;line-height:1.5;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:480px;margin:0 auto;padding:16px 14px 40px}
+h1{font-size:18px;margin:0 0 10px}
+button,.btn{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:var(--accent-ink);font-weight:700;text-decoration:none;display:inline-block;text-align:center}
+button.sub,.btn.sub{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+button.warn{background:var(--card);color:var(--warn);border:1px solid var(--line)}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+#start{width:100%;padding:14px;font-size:16px}
+.cam{display:none;margin-top:10px;position:relative;border-radius:14px;overflow:hidden;background:#000}
 .cam.on{display:block}
-.cam video{display:block;width:100%;height:auto}
-.cam .guide{position:absolute;inset:18% 8%;border:2px dashed rgba(255,255,255,.8);border-radius:10px;pointer-events:none}
-.status{margin:8px 0 0;font-size:13px;color:var(--sub);min-height:20px}
-.row{display:flex;gap:8px;margin-top:12px}
-input{flex:1;min-width:0;font-size:18px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)}
-.row button{width:auto}
-.result{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-.result img{display:block;width:100%;max-height:320px;object-fit:contain;background:#fff}
-.info{padding:14px 16px}
-.name{font-size:18px;font-weight:700;margin:0}
-.meta{margin:4px 0 0;color:var(--sub);font-size:14px}
-.imglink{display:inline-block;padding:12px 20px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font-weight:700;text-decoration:none}
-.empty{padding:22px 16px;color:var(--sub);font-size:14px;text-align:center}
+.cam video{display:block;width:100%;height:auto;max-height:42vh;object-fit:cover}
+.cam.flash{outline:4px solid var(--accent)}
+.status{margin:6px 0 0;font-size:13px;color:var(--sub);min-height:20px}
+.row{display:flex;gap:8px;margin-top:8px}
+input{flex:1;min-width:0;font-size:16px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)}
+.bar{display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px}
+.cnt{font-weight:700}
+.tools{display:flex;gap:6px}
+.tools button{padding:7px 10px;font-size:13px}
+.it{display:flex;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px}
+.it.done{opacity:.5}
+.it img,.ph{width:64px;height:64px;flex:none;border-radius:8px;object-fit:contain;background:#fff}
+.ph{display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--sub);font-size:24px;border:1px solid var(--line)}
+.bd{flex:1;min-width:0}
+.nm{margin:0;font-weight:700;font-size:15px;word-break:break-all}
+.mt{margin:0;font-size:12px;color:var(--sub);word-break:break-all}
+.memo{width:100%;margin-top:6px;font-size:14px;padding:6px 9px}
+.ac{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.ac button,.ac a{padding:7px 10px;font-size:13px}
+.empty{padding:22px 12px;color:var(--sub);font-size:14px;text-align:center}
 </style>
 </head>
 <body>
 <main>
-  <h1>バーコード商品ビューア</h1>
-  <button id="start">カメラで読み取る</button>
-  <div class="cam" id="cam"><video id="video" playsinline muted></video><div class="guide"></div></div>
+  <h1>品切れピッキングリスト</h1>
+  <button id="start">スキャン開始(連続)</button>
+  <div class="cam" id="cam"><video id="video" playsinline muted></video></div>
   <p class="status" id="status"></p>
   <div class="row">
-    <input id="code" inputmode="numeric" maxlength="13" placeholder="数字を直接入力" aria-label="バーコードの数字">
-    <button class="sub" id="go">調べる</button>
+    <input id="code" inputmode="numeric" placeholder="番号を入力して追加" aria-label="番号">
+    <button class="sub" id="add">追加</button>
   </div>
-  <section class="result" id="out" aria-live="polite">
-    <div class="empty">バーコードを映すと、向きに関係なく読み取ります。バーコードが読めないときは、下の数字も自動で読み取ります。</div>
-  </section>
+
+  <div class="bar">
+    <span class="cnt" id="cnt"></span>
+    <span class="tools">
+      <button class="sub" id="copy">コピー</button>
+      <button class="warn" id="clrdone">完了を消す</button>
+    </span>
+  </div>
+  <div id="list"></div>
 </main>
 
 <script>
-var out = document.getElementById("out"), statusEl = document.getElementById("status"),
-    video = document.getElementById("video"), cam = document.getElementById("cam"), startBtn = document.getElementById("start");
-var stream = null, running = false, timer = null, ocrWorker = null, ocrBusy = false, ocrStep = 0, ocrTick = 0;
-var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); };
+var KEY = "pick_items_v1", items = [];
+try { items = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) { items = []; }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
+var $ = function (id) { return document.getElementById(id); };
+var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); };
+var statusEl = $("status"), video = $("video"), cam = $("cam"), startBtn = $("start"), list = $("list");
 
-// ---- バーコード用の設定 ----
+// ---------- リスト ----------
+function render() {
+  var open = items.filter(function (x) { return !x.done; }).length;
+  $("cnt").textContent = "未ピック " + open + " / 全 " + items.length;
+  var order = items.map(function (x, i) { return i; }).sort(function (a, b) { return (items[a].done - items[b].done) || (items[a].t - items[b].t); });
+  list.innerHTML = order.length ? order.map(function (i) {
+    var x = items[i];
+    return '<div class="it' + (x.done ? " done" : "") + '" data-i="' + i + '">' +
+      (x.img ? '<img src="' + esc(x.img) + '" alt="">' : '<div class="ph">?</div>') +
+      '<div class="bd"><p class="nm">' + esc(x.name || "商品情報なし") + '</p>' +
+      '<p class="mt">' + esc(x.brand ? x.brand + " / " : "") + esc(x.code) + '</p>' +
+      '<input class="memo" data-act="memo" placeholder="メモ(棚番号・数量など)" value="' + esc(x.memo) + '">' +
+      '<div class="ac"><button data-act="done">' + (x.done ? "戻す" : "ピック済み") + '</button>' +
+      '<a class="btn sub" target="_blank" rel="noopener" href="https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(x.code) + '">画像検索</a>' +
+      '<button class="warn" data-act="del">削除</button></div></div></div>';
+  }).join("") : '<div class="empty">まだ何もありません。「スキャン開始」で棚のバーコードを読み取ってください。</div>';
+}
+list.addEventListener("click", function (e) {
+  var b = e.target.closest("button[data-act]"); if (!b) return;
+  var i = +b.closest(".it").dataset.i, a = b.dataset.act;
+  if (a === "done") items[i].done = !items[i].done;
+  if (a === "del" && confirm("この商品をリストから消しますか?")) items.splice(i, 1);
+  save(); render();
+});
+list.addEventListener("input", function (e) {
+  if (e.target.dataset.act !== "memo") return;
+  items[+e.target.closest(".it").dataset.i].memo = e.target.value; save();
+});
+$("clrdone").onclick = function () {
+  var n = items.filter(function (x) { return x.done; }).length;
+  if (n && confirm("ピック済みの " + n + " 件を消しますか?")) { items = items.filter(function (x) { return !x.done; }); save(); render(); }
+};
+$("copy").onclick = function () {
+  var t = items.filter(function (x) { return !x.done; }).map(function (x) { return x.code + " " + (x.name || "") + " " + (x.memo || ""); }).join("\n");
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { statusEl.textContent = "未ピックのリストをコピーしました"; }, function () { statusEl.textContent = "コピーできませんでした"; });
+};
+
+// ---------- 追加と商品検索 ----------
+var hosts = ["world.openfoodfacts.org", "world.openproductsfacts.org", "world.openbeautyfacts.org"];
+async function lookup(item) {
+  if (!/^(\d{8}|\d{12,13})$/.test(item.code)) return;
+  for (var i = 0; i < hosts.length; i++) {
+    try {
+      var r = await fetch("https://" + hosts[i] + "/api/v2/product/" + item.code + ".json?fields=product_name,brands,image_front_url");
+      var d = await r.json();
+      if (d.status === 1 && d.product) {
+        item.name = d.product.product_name || ""; item.brand = d.product.brands || ""; item.img = d.product.image_front_url || "";
+        save(); render(); return;
+      }
+    } catch (e) {}
+  }
+}
+function addCode(code) {
+  code = String(code).trim(); if (!code) return false;
+  var ex = items.filter(function (x) { return x.code === code; })[0];
+  if (ex) { if (ex.done) { ex.done = false; save(); render(); statusEl.textContent = code + " はピック済みでした。未ピックに戻しました"; } else statusEl.textContent = code + " は登録済みです"; return false; }
+  var it = { code: code, name: "", brand: "", img: "", memo: "", done: false, t: Date.now() };
+  items.push(it); save(); render(); lookup(it);
+  statusEl.textContent = "追加しました: " + code + "(" + items.length + "件)";
+  return true;
+}
+$("add").onclick = function () { if (addCode($("code").value)) $("code").value = ""; };
+$("code").addEventListener("keydown", function (e) { if (e.key === "Enter") $("add").onclick(); });
+
+// ---------- スキャン ----------
 var hints = new Map();
-hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E]);
+hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E, ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.ITF]);
 hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 var zx = new ZXing.MultiFormatReader(); zx.setHints(hints);
-
 var frame = document.createElement("canvas"), rotA = document.createElement("canvas");
+var stream = null, running = false, timer = null, ocrWorker = null, ocrBusy = false, ocrStep = 0, ocrTick = 0, lastCode = "", lastT = 0, actx = null;
 
 function decodeCanvas(c) {
-  try {
-    var bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(c)));
-    return zx.decodeWithState(bmp).getText();
-  } catch (e) { return null; }
+  try { return zx.decodeWithState(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(c)))).getText(); } catch (e) { return null; }
 }
 function rotate(src, deg, dst) {
   dst.width = src.height; dst.height = src.width;
-  var x = dst.getContext("2d");
-  x.setTransform(1, 0, 0, 1, 0, 0);
+  var x = dst.getContext("2d"); x.setTransform(1, 0, 0, 1, 0, 0);
   if (deg === 90) { x.translate(dst.width, 0); x.rotate(Math.PI / 2); } else { x.translate(0, dst.height); x.rotate(-Math.PI / 2); }
-  x.drawImage(src, 0, 0);
-  return dst;
+  x.drawImage(src, 0, 0); return dst;
 }
 function grab() {
   var w = video.videoWidth, h = video.videoHeight; if (!w) return false;
   var s = Math.min(1, 1280 / Math.max(w, h));
   frame.width = Math.round(w * s); frame.height = Math.round(h * s);
-  frame.getContext("2d").drawImage(video, 0, 0, frame.width, frame.height);
-  return true;
+  frame.getContext("2d").drawImage(video, 0, 0, frame.width, frame.height); return true;
 }
-
-// ---- 数字の読み取り(保険) ----
 function valid(c) {
   var n = c.length; if (n !== 8 && n !== 12 && n !== 13) return false;
   var s = 0; for (var i = 0; i < n - 1; i++) s += +c[n - 2 - i] * (i % 2 === 0 ? 3 : 1);
@@ -94,92 +167,65 @@ function valid(c) {
 function findCode(text) {
   var lines = text.split("\n");
   for (var i = 0; i < lines.length; i++) {
-    var d = lines[i].replace(/\D/g, "");
-    var m = d.match(/\d{13}|\d{12}|\d{8}/g) || [];
+    var m = lines[i].replace(/\D/g, "").match(/\d{13}|\d{12}|\d{8}/g) || [];
     for (var j = 0; j < m.length; j++) if (valid(m[j])) return m[j];
   }
   return null;
+}
+function beep() {
+  try { var o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = 1000; g.gain.value = .15; o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + .12); } catch (e) {}
+  if (navigator.vibrate) navigator.vibrate(60);
+  cam.classList.add("flash"); setTimeout(function () { cam.classList.remove("flash"); }, 250);
+}
+function handle(code) {
+  var now = Date.now();
+  if (code === lastCode && now - lastT < 4000) return false;
+  lastCode = code; lastT = now; beep(); addCode(code); return true;
 }
 async function runOcr() {
   if (ocrBusy || !running) return; ocrBusy = true;
   try {
     if (!ocrWorker) {
-      statusEl.textContent = "数字読み取りの準備中…(初回のみ少し時間がかかります)";
+      statusEl.textContent = "数字読み取りの準備中…(初回のみ)";
       ocrWorker = await Tesseract.createWorker("eng");
       await ocrWorker.setParameters({ tessedit_char_whitelist: "0123456789 ", tessedit_pageseg_mode: "11" });
     }
     if (!running) { ocrBusy = false; return; }
-    var angles = [0, 90, 270], a = angles[ocrStep++ % 3], c = frame;
-    if (a) c = rotate(frame, a, document.createElement("canvas"));
+    var a = [0, 90, 270][ocrStep++ % 3], c = a ? rotate(frame, a, document.createElement("canvas")) : frame;
     var r = await ocrWorker.recognize(c), code = findCode(r.data.text || "");
-    if (code && running) { found(code, "数字"); }
-    else if (running) statusEl.textContent = "読み取り中…バーコードを映してください";
-  } catch (e) { statusEl.textContent = "数字読み取りに失敗しました。バーコードのみで続けます。"; }
+    if (code && running) handle(code);
+  } catch (e) {}
   ocrBusy = false;
 }
-
-// ---- 読み取りループ ----
 function loop() {
   if (!running) return;
+  var wait = 120;
   if (grab()) {
     var t = decodeCanvas(frame) || decodeCanvas(rotate(frame, 90, rotA));
-    if (t) { found(t, "バーコード"); return; }
-    if (++ocrTick % 8 === 0) runOcr();
+    if (t) { if (handle(t)) wait = 1200; }
+    else if (++ocrTick % 10 === 0) runOcr();
   }
-  timer = setTimeout(loop, 120);
+  timer = setTimeout(loop, wait);
 }
-function found(code, how) {
-  stop();
-  document.getElementById("code").value = code;
-  statusEl.textContent = how + "から読み取りました: " + code;
-  lookup(code);
-}
-async function stop() {
+function stop() {
   running = false; clearTimeout(timer);
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
-  video.srcObject = null; cam.classList.remove("on");
-  startBtn.textContent = "カメラで読み取る";
+  video.srcObject = null; cam.classList.remove("on"); startBtn.textContent = "スキャン開始(連続)";
 }
 startBtn.onclick = async function () {
-  if (running) { stop(); statusEl.textContent = ""; return; }
+  if (running) { stop(); statusEl.textContent = "スキャンを止めました"; return; }
   try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") actx.resume();
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
-    video.srcObject = stream; video.setAttribute("playsinline", ""); video.muted = true;
-    await video.play();
-    cam.classList.add("on"); running = true; ocrTick = 0;
-    startBtn.textContent = "読み取りを止める";
-    statusEl.textContent = "読み取り中…バーコードを映してください(向きは自由です)";
+    video.srcObject = stream; video.setAttribute("playsinline", ""); video.muted = true; await video.play();
+    cam.classList.add("on"); running = true; ocrTick = 0; lastCode = "";
+    startBtn.textContent = "スキャンを止める";
+    statusEl.textContent = "棚のバーコードを次々に映してください(向きは自由)";
     loop();
-  } catch (e) {
-    stop();
-    out.innerHTML = '<div class="empty">カメラを開けませんでした。Safariの設定でカメラを許可し、https:// のアドレスで開いているか確認してください。</div>';
-  }
+  } catch (e) { stop(); statusEl.textContent = "カメラを開けませんでした。Safariの設定でカメラを許可してください。"; }
 };
-
-// ---- 商品検索(食品 → 日用品 → 化粧品の順) ----
-var hosts = ["world.openfoodfacts.org", "world.openproductsfacts.org", "world.openbeautyfacts.org"];
-async function lookup(code) {
-  out.innerHTML = '<div class="empty">' + esc(code) + ' を検索中…</div>';
-  for (var i = 0; i < hosts.length; i++) {
-    try {
-      var r = await fetch("https://" + hosts[i] + "/api/v2/product/" + encodeURIComponent(code) + ".json?fields=product_name,brands,image_front_url");
-      var d = await r.json();
-      if (d.status === 1 && d.product) {
-        var p = d.product;
-        out.innerHTML = (p.image_front_url ? '<img src="' + esc(p.image_front_url) + '" alt="商品画像">' : '') +
-          '<div class="info"><p class="name">' + esc(p.product_name || "名称不明") + '</p>' +
-          '<p class="meta">' + esc(p.brands || "") + '</p><p class="meta">' + esc(code) + '</p></div>';
-        return;
-      }
-    } catch (e) {}
-  }
-  out.innerHTML = '<div class="empty">' + esc(code) + ' の商品が見つかりませんでした。無料のデータベースに登録がない商品です。<br><br>' +
-    '<a class="imglink" href="https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(code) + '" target="_blank" rel="noopener">画像検索で探す</a></div>';
-}
-document.getElementById("go").onclick = function () {
-  var v = document.getElementById("code").value.replace(/\D/g, "");
-  if (v) lookup(v);
-};
+render();
 </script>
 </body>
 </html>
